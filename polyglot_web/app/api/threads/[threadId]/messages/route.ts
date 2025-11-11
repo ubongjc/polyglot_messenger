@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
+import { calculateExpiresAt, validateExpiresInSeconds } from '@/lib/message-features';
 
 type RouteParams = {
   params: Promise<{ threadId: string }>;
@@ -11,6 +12,14 @@ const createMessageSchema = z.object({
   ciphertext: z.string().min(1),
   iv: z.string().min(1),
   sourceLang: z.string().default('en'),
+  // Disappearing messages
+  expiresInSeconds: z.number().int().positive().optional(),
+  // One-time view
+  isOneTimeView: z.boolean().optional(),
+  // Voice messages
+  isVoiceMessage: z.boolean().optional(),
+  originalAudioUrl: z.string().url().optional(),
+  audioDurationMs: z.number().int().positive().optional(),
 });
 
 /**
@@ -80,7 +89,27 @@ export async function POST(
       );
     }
 
-    const { ciphertext, iv, sourceLang } = validation.data;
+    const {
+      ciphertext,
+      iv,
+      sourceLang,
+      expiresInSeconds,
+      isOneTimeView,
+      isVoiceMessage,
+      originalAudioUrl,
+      audioDurationMs,
+    } = validation.data;
+
+    // Validate disappearing message duration if provided
+    if (expiresInSeconds !== undefined && !validateExpiresInSeconds(expiresInSeconds)) {
+      return NextResponse.json(
+        { error: 'Invalid expiresInSeconds value. Must be between 1 and 604800 (7 days)' },
+        { status: 400 }
+      );
+    }
+
+    // Calculate expiration timestamp
+    const expiresAt = expiresInSeconds ? calculateExpiresAt(expiresInSeconds) : undefined;
 
     // Create message
     const message = await prisma.message.create({
@@ -90,6 +119,15 @@ export async function POST(
         ciphertext,
         iv,
         sourceLang,
+        // Disappearing messages
+        expiresAt,
+        expiresInSeconds,
+        // One-time view
+        isOneTimeView: isOneTimeView ?? false,
+        // Voice messages
+        isVoiceMessage: isVoiceMessage ?? false,
+        originalAudioUrl,
+        audioDurationMs,
       },
       include: {
         sender: {
