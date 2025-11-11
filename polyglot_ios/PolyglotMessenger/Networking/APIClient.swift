@@ -110,6 +110,13 @@ class APIClient {
             body: message
         )
     }
+
+    func markMessageAsViewed(messageId: String) async throws -> MessageViewResponse {
+        return try await request(
+            endpoint: "/api/messages/\(messageId)/view",
+            method: "POST"
+        )
+    }
 }
 
 // MARK: - Request/Response Types
@@ -123,6 +130,12 @@ struct ThreadsResponse: Codable {
 
 struct CreateThreadRequest: Codable {
     let participantUserIds: [String]
+}
+
+struct MessageViewResponse: Codable {
+    let success: Bool
+    let isFirstView: Bool
+    let shouldDelete: Bool
 }
 
 // MARK: - Errors

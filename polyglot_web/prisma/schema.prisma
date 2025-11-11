@@ -84,6 +84,19 @@ model Message {
   // Language and translation metadata
   sourceLang  String   @default("en") // ISO 639-1 code
 
+  // Disappearing messages
+  expiresAt          DateTime? // Auto-delete timestamp
+  expiresInSeconds   Int?      // Duration in seconds (e.g., 60, 3600, 86400)
+
+  // One-time view messages
+  isOneTimeView      Boolean   @default(false) // If true, auto-delete after first view
+  viewedAt           DateTime? // When first viewed (triggers deletion)
+
+  // Speech-to-text metadata
+  isVoiceMessage     Boolean   @default(false) // Created via speech-to-text
+  originalAudioUrl   String?   // R2 URL for original audio (encrypted)
+  audioDurationMs    Int?      // Audio duration in milliseconds
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   deletedAt   DateTime? // Soft delete
@@ -93,10 +106,13 @@ model Message {
   sender      User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
   translations MessageTranslation[]
   moderationFlags ModerationFlag[]
+  messageViews MessageView[]
 
   @@index([threadId, createdAt])
   @@index([senderId])
   @@index([createdAt])
+  @@index([expiresAt]) // For cleanup job
+  @@index([isOneTimeView, viewedAt]) // For one-time view cleanup
 }
 
 // Cached translations for messages
@@ -119,6 +135,20 @@ model MessageTranslation {
 
   @@unique([messageId, targetLang])
   @@index([messageId])
+}
+
+// Message views - track who viewed one-time view messages
+model MessageView {
+  id          String   @id @default(cuid())
+  messageId   String
+  userId      String
+  viewedAt    DateTime @default(now())
+
+  message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([messageId])
+  @@index([userId])
 }
 
 // Style profiles - pair-specific tone preferences
