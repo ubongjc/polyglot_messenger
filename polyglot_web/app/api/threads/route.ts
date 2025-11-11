@@ -3,9 +3,9 @@ import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 
-// Validation schemas
+// SECURITY FIX (HIGH-010): Validate participant IDs as CUIDs
 const createThreadSchema = z.object({
-  participantUserIds: z.array(z.string()).min(1, 'At least one participant required'),
+  participantUserIds: z.array(z.string().cuid()).min(1, 'At least one participant required'),
 });
 
 /**
