@@ -11,12 +11,16 @@ import { cleanupExpiredMessages } from '@/lib/message-features';
 
 export async function POST(request: NextRequest) {
   try {
-    // Verify this is a legitimate cron request
-    // You can add a secret token check here if needed
-    const authHeader = request.headers.get('authorization');
+    // SECURITY FIX (HIGH-002): Make CRON_SECRET required
     const cronSecret = process.env.CRON_SECRET;
 
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret) {
+      throw new Error('CRON_SECRET environment variable is required');
+    }
+
+    const authHeader = request.headers.get('authorization');
+
+    if (authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -37,7 +41,5 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Allow GET for manual testing (remove in production)
-export async function GET(request: NextRequest) {
-  return POST(request);
-}
+// SECURITY FIX (MEDIUM-003): Remove GET method to prevent CSRF
+// GET method removed - use POST only with proper authentication

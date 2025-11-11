@@ -17,22 +17,40 @@ model User {
   id        String   @id @default(cuid())
   clerkId   String   @unique // External auth provider ID
   email     String   @unique
+
+  // Profile fields
   name      String?
+  username  String?  @unique // Unique username for search/discovery
+  bio       String?  @db.Text // User bio/status
+  phoneNumber String? // Optional phone number
   imageUrl  String?
   role      UserRole @default(USER)
+
+  // Privacy settings
+  isPublic  Boolean  @default(true) // Allow others to find via search
+
+  // Online status
+  lastSeenAt DateTime @default(now())
+  isOnline   Boolean  @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  sentMessages     Message[]
-  threads          ThreadParticipant[]
-  styleProfiles    StyleProfile[]
-  subscriptions    Subscription[]
+  sentMessages       Message[]
+  threads            ThreadParticipant[]
+  styleProfiles      StyleProfile[]
+  subscriptions      Subscription[]
   dataExportRequests DataExportRequest[]
+
+  // Contact relationships
+  contactsInitiated  Contact[] @relation("ContactInitiator")
+  contactsReceived   Contact[] @relation("ContactReceiver")
 
   @@index([clerkId])
   @@index([email])
+  @@index([username])
+  @@index([lastSeenAt])
 }
 
 enum UserRole {
@@ -278,4 +296,36 @@ enum ExportStatus {
 enum ExportType {
   DATA_EXPORT
   DATA_DELETE
+}
+
+// Contact/Friend management
+model Contact {
+  id          String   @id @default(cuid())
+
+  // User who initiated the contact
+  initiatorId String
+  initiator   User     @relation("ContactInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
+
+  // User who received the contact request
+  receiverId  String
+  receiver    User     @relation("ContactReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  status      ContactStatus @default(PENDING)
+  nickname    String?       // Custom nickname for this contact
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  acceptedAt  DateTime?
+
+  @@unique([initiatorId, receiverId])
+  @@index([initiatorId])
+  @@index([receiverId])
+  @@index([status])
+}
+
+enum ContactStatus {
+  PENDING   // Contact request sent, awaiting acceptance
+  ACCEPTED  // Contact accepted, can message
+  BLOCKED   // Contact blocked by one party
+  REJECTED  // Contact request rejected
 }

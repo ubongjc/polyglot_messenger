@@ -139,11 +139,25 @@ export async function DELETE(
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Remove user from thread participants
-    await prisma.threadParticipant.deleteMany({
+    // SECURITY FIX (CRITICAL-001): Verify user is a participant before deletion
+    const participant = await prisma.threadParticipant.findFirst({
       where: {
         threadId,
         userId: user.id,
+      },
+    });
+
+    if (!participant) {
+      return NextResponse.json(
+        { error: 'Not a participant in this thread' },
+        { status: 403 }
+      );
+    }
+
+    // Remove user from thread participants
+    await prisma.threadParticipant.delete({
+      where: {
+        id: participant.id,
       },
     });
 
