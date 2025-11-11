@@ -1,0 +1,251 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+// User model - synced from Clerk/Auth provider
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique // External auth provider ID
+  email     String   @unique
+  name      String?
+  imageUrl  String?
+  role      UserRole @default(USER)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  sentMessages     Message[]
+  threads          ThreadParticipant[]
+  styleProfiles    StyleProfile[]
+  subscriptions    Subscription[]
+  dataExportRequests DataExportRequest[]
+
+  @@index([clerkId])
+  @@index([email])
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  MODERATOR
+}
+
+// Thread - conversation container
+model Thread {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  participants ThreadParticipant[]
+  messages     Message[]
+
+  @@index([updatedAt])
+}
+
+// Thread participants - many-to-many relationship
+model ThreadParticipant {
+  id        String   @id @default(cuid())
+  threadId  String
+  userId    String
+
+  joinedAt  DateTime @default(now())
+  lastRead  DateTime @default(now())
+
+  thread    Thread   @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, userId])
+  @@index([userId])
+  @@index([threadId])
+}
+
+// Message - individual message in a thread
+model Message {
+  id          String   @id @default(cuid())
+  threadId    String
+  senderId    String
+
+  // Encrypted content (client-side encrypted)
+  ciphertext  String   @db.Text
+  iv          String   // Initialization vector for AES-GCM
+
+  // Language and translation metadata
+  sourceLang  String   @default("en") // ISO 639-1 code
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime? // Soft delete
+
+  // Relations
+  thread      Thread   @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender      User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  translations MessageTranslation[]
+  moderationFlags ModerationFlag[]
+
+  @@index([threadId, createdAt])
+  @@index([senderId])
+  @@index([createdAt])
+}
+
+// Cached translations for messages
+model MessageTranslation {
+  id          String   @id @default(cuid())
+  messageId   String
+  targetLang  String   // ISO 639-1 code
+
+  // Encrypted translated content
+  ciphertext  String   @db.Text
+  iv          String
+
+  // Translation metadata
+  idiomWarning Boolean @default(false)
+  warningText  String?  @db.Text
+
+  createdAt   DateTime @default(now())
+
+  message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, targetLang])
+  @@index([messageId])
+}
+
+// Style profiles - pair-specific tone preferences
+model StyleProfile {
+  id          String   @id @default(cuid())
+  userId      String
+  pairUserId  String   // The other user in the pair
+
+  // Tone preferences
+  formality   Int      @default(5) // 1-10 scale
+  friendliness Int     @default(5) // 1-10 scale
+  directness  Int      @default(5) // 1-10 scale
+
+  // Safety settings
+  safeMode    Boolean  @default(false) // Avoid risky idioms
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pairUserId])
+  @@index([userId])
+}
+
+// Moderation flags for cross-language harassment detection
+model ModerationFlag {
+  id          String   @id @default(cuid())
+  messageId   String
+
+  flagType    FlagType
+  severity    Int      @default(1) // 1-10 scale
+  description String?  @db.Text
+
+  reviewed    Boolean  @default(false)
+  reviewedAt  DateTime?
+  reviewedBy  String?  // Admin user ID
+  action      String?  // Action taken
+
+  createdAt   DateTime @default(now())
+
+  message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([reviewed])
+  @@index([createdAt])
+}
+
+enum FlagType {
+  HARASSMENT
+  HATE_SPEECH
+  SPAM
+  INAPPROPRIATE
+  OTHER
+}
+
+// Subscription tiers for monetization
+model Subscription {
+  id          String   @id @default(cuid())
+  userId      String
+
+  tier        SubscriptionTier
+  status      SubscriptionStatus
+
+  // Stripe integration
+  stripeCustomerId     String?  @unique
+  stripeSubscriptionId String?  @unique
+  stripePriceId        String?
+
+  // Billing
+  currentPeriodStart   DateTime
+  currentPeriodEnd     DateTime
+  cancelAtPeriodEnd    Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+enum SubscriptionTier {
+  FREE
+  BASIC
+  PRO
+  BUSINESS
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+  PAUSED
+}
+
+// Data Subject Rights - GDPR compliance
+model DataExportRequest {
+  id          String   @id @default(cuid())
+  userId      String
+
+  status      ExportStatus
+  requestType ExportType
+
+  // Export file location (R2/S3)
+  exportUrl   String?
+  expiresAt   DateTime?
+
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+enum ExportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ExportType {
+  DATA_EXPORT
+  DATA_DELETE
+}
